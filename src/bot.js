@@ -176,6 +176,24 @@ Durations: <code>30s</code>, <code>10m</code>, <code>2h</code>, <code>1d</code>`
       { parse_mode: 'HTML' });
   });
 
+  // ────── Forwarded messages in DM → reveal sender ID (owner + bot admins only)
+  bot.on('message', async (ctx, next) => {
+    if (ctx.chat?.type !== 'private') return next();
+    if (!isBotAdmin(ctx.from.id)) return next();
+    const fwd = ctx.message.forward_origin;
+    if (!fwd) return next();
+    let info;
+    if (fwd.type === 'user') {
+      info = `👤 <b>${escapeHtml(fwd.sender_user.first_name || '')}</b>${fwd.sender_user.username ? ' (@' + fwd.sender_user.username + ')' : ''}\nID: <code>${fwd.sender_user.id}</code>\n\nUse: <code>/ban ${fwd.sender_user.id}</code>`;
+    } else if (fwd.type === 'hidden_user') {
+      info = `👤 <b>${escapeHtml(fwd.sender_user_name)}</b>\n<i>This user has forwards hidden — their ID is not available. They must interact in the group to be resolvable.</i>`;
+    } else if (fwd.type === 'chat' || fwd.type === 'channel') {
+      info = `📢 Forwarded from chat/channel:\nID: <code>${fwd.sender_chat?.id || fwd.chat?.id}</code>`;
+    }
+    if (info) { await ctx.reply(info, { parse_mode: 'HTML' }); return; }
+    return next();
+  });
+
   // ────── DM text/media input for panel prompts
   bot.on('message:text', async (ctx, next) => {
     if (ctx.chat.type === 'private') {
