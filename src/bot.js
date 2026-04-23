@@ -214,10 +214,16 @@ Durations: <code>30s</code>, <code>10m</code>, <code>2h</code>, <code>1d</code>`
     const s = load();
     if (!s.approvedChats.map(Number).includes(Number(ctx.chat.id))) return; // silent in non-approved chats (shouldn't happen, we leave on join)
     // Cache the sender's username for later @mention resolution
-    if (ctx.from?.username) rememberUser(ctx.chat.id, ctx.from);
+    if (ctx.from?.username) {
+      rememberUser(ctx.chat.id, ctx.from);
+      console.log('[cache] remembered', ctx.from.username, '→', ctx.from.id, 'in', ctx.chat.id);
+    }
     // Cache users mentioned via text_mention (has full user object)
     for (const e of (ctx.message?.entities || [])) {
-      if (e.type === 'text_mention' && e.user?.username) rememberUser(ctx.chat.id, e.user);
+      if (e.type === 'text_mention' && e.user?.username) {
+        rememberUser(ctx.chat.id, e.user);
+        console.log('[cache] remembered via text_mention', e.user.username, '→', e.user.id);
+      }
     }
     return next();
   });

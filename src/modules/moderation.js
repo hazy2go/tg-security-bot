@@ -12,14 +12,24 @@ function parseDuration(s) {
 }
 
 async function getTargetUser(ctx) {
+  const dbg = (...args) => console.log('[resolve]', ...args);
+  const text = ctx.message?.text || '';
+  const entities = ctx.message?.entities || [];
+  dbg('text:', JSON.stringify(text));
+  dbg('entities:', JSON.stringify(entities, null, 2));
+  if (ctx.message?.reply_to_message) dbg('reply_to.from:', ctx.message.reply_to_message.from);
+
   // 1. Reply-to
   const reply = ctx.message?.reply_to_message;
-  if (reply?.from) return { id: reply.from.id, name: reply.from.first_name || '' };
+  if (reply?.from) {
+    dbg('→ matched via reply');
+    return { id: reply.from.id, name: reply.from.first_name || '' };
+  }
 
   // 2. text_mention entity (user picked from autocomplete / no @username required)
-  const entities = ctx.message?.entities || [];
   for (const e of entities) {
     if (e.type === 'text_mention' && e.user) {
+      dbg('→ matched via text_mention, user:', e.user);
       return { id: e.user.id, name: e.user.first_name || '' };
     }
   }
@@ -27,21 +37,32 @@ async function getTargetUser(ctx) {
   // 3. @username mention — resolve via our seen-users cache, then admin list as fallback
   for (const e of entities) {
     if (e.type === 'mention') {
-      const uname = ctx.message.text.slice(e.offset + 1, e.offset + e.length);
+      const uname = text.slice(e.offset + 1, e.offset + e.length);
+      dbg('mention entity, username extracted:', uname);
       const cached = lookupUser(ctx.chat.id, uname);
+      dbg('cache lookup result:', cached);
       if (cached) return { id: cached.id, name: cached.first_name || '' };
       try {
         const admins = await ctx.api.getChatAdministrators(ctx.chat.id);
+        dbg('admin usernames:', admins.map(a => a.user.username));
         const hit = admins.find(a => (a.user.username || '').toLowerCase() === uname.toLowerCase());
-        if (hit) return { id: hit.user.id, name: hit.user.first_name || '' };
-      } catch {}
+        if (hit) {
+          dbg('→ matched via admin list');
+          return { id: hit.user.id, name: hit.user.first_name || '' };
+        }
+      } catch (e) { dbg('getChatAdministrators failed:', e.description); }
+      dbg('→ unresolved mention');
       return { id: null, name: uname, unresolvedUsername: uname };
     }
   }
 
   // 4. Raw numeric ID
-  const parts = (ctx.message?.text || '').split(/\s+/).slice(1);
-  if (parts[0] && /^-?\d+$/.test(parts[0])) return { id: Number(parts[0]), name: '' };
+  const parts = text.split(/\s+/).slice(1);
+  if (parts[0] && /^-?\d+$/.test(parts[0])) {
+    dbg('→ matched via numeric ID');
+    return { id: Number(parts[0]), name: '' };
+  }
+  dbg('→ no target resolved');
   return null;
 }
 
