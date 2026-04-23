@@ -12,62 +12,42 @@ function parseDuration(s) {
 }
 
 async function getTargetUser(ctx) {
-  const dbg = (...args) => console.log('[resolve]', ...args);
   const text = ctx.message?.text || '';
   const entities = ctx.message?.entities || [];
-  dbg('text:', JSON.stringify(text));
-  dbg('entities:', JSON.stringify(entities, null, 2));
-  if (ctx.message?.reply_to_message) dbg('reply_to.from:', ctx.message.reply_to_message.from);
 
   // 1. Reply-to
   const reply = ctx.message?.reply_to_message;
-  if (reply?.from) {
-    dbg('→ matched via reply');
-    return { id: reply.from.id, name: reply.from.first_name || '' };
-  }
+  if (reply?.from) return { id: reply.from.id, name: reply.from.first_name || '' };
 
-  // 2. text_mention entity (user picked from autocomplete / no @username required)
+  // 2. text_mention entity (no @username — Telegram embeds the user object)
   for (const e of entities) {
     if (e.type === 'text_mention' && e.user) {
-      dbg('→ matched via text_mention, user:', e.user);
       return { id: e.user.id, name: e.user.first_name || '' };
     }
   }
 
-  // 3. @username mention — resolve via our seen-users cache, then admin list as fallback
+  // 3. @username mention — cache → getChat fallback → admin list
   for (const e of entities) {
     if (e.type === 'mention') {
       const uname = text.slice(e.offset + 1, e.offset + e.length);
-      dbg('mention entity, username extracted:', uname);
       const cached = lookupUser(ctx.chat.id, uname);
-      dbg('cache lookup result:', cached);
       if (cached) return { id: cached.id, name: cached.first_name || '' };
-      // Fallback: Bot API lets us getChat('@username') for users with public usernames
       try {
         const u = await ctx.api.getChat('@' + uname);
-        dbg('getChat(@username) result:', u);
         if (u?.id) return { id: u.id, name: u.first_name || '' };
-      } catch (e) { dbg('getChat(@username) failed:', e.description); }
+      } catch {}
       try {
         const admins = await ctx.api.getChatAdministrators(ctx.chat.id);
         const hit = admins.find(a => (a.user.username || '').toLowerCase() === uname.toLowerCase());
-        if (hit) {
-          dbg('→ matched via admin list');
-          return { id: hit.user.id, name: hit.user.first_name || '' };
-        }
-      } catch (e) { dbg('getChatAdministrators failed:', e.description); }
-      dbg('→ unresolved mention');
+        if (hit) return { id: hit.user.id, name: hit.user.first_name || '' };
+      } catch {}
       return { id: null, name: uname, unresolvedUsername: uname };
     }
   }
 
   // 4. Raw numeric ID
   const parts = text.split(/\s+/).slice(1);
-  if (parts[0] && /^-?\d+$/.test(parts[0])) {
-    dbg('→ matched via numeric ID');
-    return { id: Number(parts[0]), name: '' };
-  }
-  dbg('→ no target resolved');
+  if (parts[0] && /^-?\d+$/.test(parts[0])) return { id: Number(parts[0]), name: '' };
   return null;
 }
 
@@ -113,7 +93,14 @@ async function cmdKick(ctx) {
   if (!(await ensureAuth(ctx))) return;
   const target = await getTargetUser(ctx);
   if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
-  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
+  if (!target.id) return ctx.reply(
+    `Can't resolve <b>@${target.unresolvedUsername}</b> — the Telegram Bot API won't look up users by handle until they interact.\n\n` +
+    `Workarounds:\n` +
+    `• <b>Reply</b> to any message of theirs with this command\n` +
+    `• Ask them to say anything in the group (even a sticker), then retry\n` +
+    `• Forward one of their messages to me in DM — I'll reply with their ID\n` +
+    `• Use <code>${ctx.message.text.split(' ')[0]} &lt;numericId&gt;</code>`,
+    { parse_mode: 'HTML' });
   try {
     await ctx.api.banChatMember(ctx.chat.id, target.id);
     await ctx.api.unbanChatMember(ctx.chat.id, target.id);
@@ -126,7 +113,14 @@ async function cmdMute(ctx) {
   if (!(await ensureAuth(ctx))) return;
   const target = await getTargetUser(ctx);
   if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
-  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
+  if (!target.id) return ctx.reply(
+    `Can't resolve <b>@${target.unresolvedUsername}</b> — the Telegram Bot API won't look up users by handle until they interact.\n\n` +
+    `Workarounds:\n` +
+    `• <b>Reply</b> to any message of theirs with this command\n` +
+    `• Ask them to say anything in the group (even a sticker), then retry\n` +
+    `• Forward one of their messages to me in DM — I'll reply with their ID\n` +
+    `• Use <code>${ctx.message.text.split(' ')[0]} &lt;numericId&gt;</code>`,
+    { parse_mode: 'HTML' });
   const parts = ctx.message.text.split(/\s+/);
   const durSec = parseDuration(parts.find(p => /^\d+[smhd]?$/i.test(p) && Number(p) !== target.id)) || 3600;
   try {
@@ -143,7 +137,14 @@ async function cmdUnmute(ctx) {
   if (!(await ensureAuth(ctx))) return;
   const target = await getTargetUser(ctx);
   if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
-  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
+  if (!target.id) return ctx.reply(
+    `Can't resolve <b>@${target.unresolvedUsername}</b> — the Telegram Bot API won't look up users by handle until they interact.\n\n` +
+    `Workarounds:\n` +
+    `• <b>Reply</b> to any message of theirs with this command\n` +
+    `• Ask them to say anything in the group (even a sticker), then retry\n` +
+    `• Forward one of their messages to me in DM — I'll reply with their ID\n` +
+    `• Use <code>${ctx.message.text.split(' ')[0]} &lt;numericId&gt;</code>`,
+    { parse_mode: 'HTML' });
   try {
     await ctx.api.restrictChatMember(ctx.chat.id, target.id, {
       permissions: {
@@ -161,7 +162,14 @@ async function cmdWarn(ctx) {
   if (!(await ensureAuth(ctx))) return;
   const target = await getTargetUser(ctx);
   if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
-  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
+  if (!target.id) return ctx.reply(
+    `Can't resolve <b>@${target.unresolvedUsername}</b> — the Telegram Bot API won't look up users by handle until they interact.\n\n` +
+    `Workarounds:\n` +
+    `• <b>Reply</b> to any message of theirs with this command\n` +
+    `• Ask them to say anything in the group (even a sticker), then retry\n` +
+    `• Forward one of their messages to me in DM — I'll reply with their ID\n` +
+    `• Use <code>${ctx.message.text.split(' ')[0]} &lt;numericId&gt;</code>`,
+    { parse_mode: 'HTML' });
   const chat = getChat(ctx.chat.id);
   const users = chat.warns.users;
   users[target.id] = (users[target.id] || 0) + 1;
