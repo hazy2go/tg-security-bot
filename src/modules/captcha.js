@@ -274,17 +274,30 @@ async function onCallback(ctx) {
       } catch {}
     } else {
       try {
+        // Use the chat's own default permissions so members get exactly what other members get.
+        let perms = null;
+        try {
+          const chatInfo = await ctx.api.getChat(origChat);
+          perms = chatInfo.permissions;
+        } catch {}
+        const fullPerms = {
+          can_send_messages: true, can_send_audios: true, can_send_documents: true,
+          can_send_photos: true, can_send_videos: true, can_send_video_notes: true,
+          can_send_voice_notes: true, can_send_polls: true, can_send_other_messages: true,
+          can_add_web_page_previews: true, can_invite_users: true,
+          can_change_info: false, can_pin_messages: false, can_manage_topics: false,
+        };
         await ctx.api.restrictChatMember(origChat, userId, {
-          permissions: {
-            can_send_messages: true, can_send_audios: true, can_send_documents: true,
-            can_send_photos: true, can_send_videos: true, can_send_video_notes: true,
-            can_send_voice_notes: true, can_send_polls: true, can_send_other_messages: true,
-            can_add_web_page_previews: true, can_change_info: false, can_invite_users: true,
-            can_pin_messages: false, can_manage_topics: false,
-          },
+          permissions: perms || fullPerms,
           use_independent_chat_permissions: true,
+          until_date: 0,
         });
-      } catch (e) { console.error('[captcha] unrestrict:', e.description); }
+      } catch (e) {
+        console.error('[captcha] unrestrict failed:', e.description || e.message);
+        await log(ctx.api, origChat, 'captcha',
+          `⚠️ Could not restore permissions for <code>${userId}</code>: ${e.description || e.message}\n` +
+          `Make sure the bot is an admin with <b>Restrict Members</b> permission.`);
+      }
       await ctx.answerCallbackQuery({ text: '✅ Verified!' });
       const cfg = getChat(origChat).captcha;
       // Clean up: DM challenge + in-group prompt
