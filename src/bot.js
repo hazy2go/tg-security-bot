@@ -210,6 +210,7 @@ Durations: <code>30s</code>, <code>10m</code>, <code>2h</code>, <code>1d</code>`
   ];
 
   await bot.api.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
+  await registerCommands(bot);
   bot.start({ allowed_updates: allowed, drop_pending_updates: false, onStart: (me) => {
     console.log(`[bot] @${me.username} online. owner=${OWNER_ID}`);
   }});
@@ -219,6 +220,63 @@ Durations: <code>30s</code>, <code>10m</code>, <code>2h</code>, <code>1d</code>`
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+async function registerCommands(bot) {
+  // Shown to everyone in private chat
+  const privateCmds = [
+    { command: 'start',     description: 'Start the bot' },
+    { command: 'help',      description: 'Show commands' },
+    { command: 'id',        description: 'Show your/chat ID' },
+    { command: 'report',    description: 'Report a message to admins' },
+  ];
+  // Shown to everyone in groups
+  const groupCmds = [
+    { command: 'help',      description: 'Show commands' },
+    { command: 'id',        description: 'Show your/chat/topic ID' },
+    { command: 'report',    description: 'Reply to report a message to admins' },
+  ];
+  // Shown to group admins only
+  const adminCmds = [
+    { command: 'admin',     description: '⚙️ Open admin panel' },
+    { command: 'warn',      description: 'Warn a user (reply)' },
+    { command: 'unwarn',    description: 'Remove a warn (reply)' },
+    { command: 'mute',      description: 'Mute user [duration] (reply)' },
+    { command: 'unmute',    description: 'Unmute user (reply)' },
+    { command: 'ban',       description: 'Ban user [duration] (reply)' },
+    { command: 'unban',     description: 'Unban user by ID' },
+    { command: 'kick',      description: 'Kick user (reply)' },
+    { command: 'purge',     description: 'Delete messages from reply to now' },
+    { command: 'pin',       description: 'Pin replied message' },
+    { command: 'lock',      description: '🔒 Lock chat' },
+    { command: 'unlock',    description: '🔓 Unlock chat' },
+    { command: 'id',        description: 'Show IDs' },
+    { command: 'report',    description: 'Report a message' },
+    { command: 'help',      description: 'Show commands' },
+  ];
+  // Owner-only (extra)
+  const ownerCmds = [
+    { command: 'admin',     description: '⚙️ Open admin panel' },
+    { command: 'pending',   description: 'List pending chat invites' },
+    { command: 'approve',   description: 'Approve a chat ID' },
+    { command: 'unapprove', description: 'Revoke & leave a chat' },
+    { command: 'help',      description: 'Show commands' },
+    { command: 'id',        description: 'Show your ID' },
+  ];
+
+  try {
+    await bot.api.setMyCommands(privateCmds, { scope: { type: 'all_private_chats' } });
+    await bot.api.setMyCommands(groupCmds,   { scope: { type: 'all_group_chats' } });
+    await bot.api.setMyCommands(adminCmds,   { scope: { type: 'all_chat_administrators' } });
+    if (process.env.OWNER_ID) {
+      await bot.api.setMyCommands(ownerCmds, {
+        scope: { type: 'chat', chat_id: Number(process.env.OWNER_ID) },
+      });
+    }
+    console.log('[bot] command menu registered');
+  } catch (e) {
+    console.error('[bot] setMyCommands failed:', e.description || e.message);
+  }
 }
 
 module.exports = { startBot };
