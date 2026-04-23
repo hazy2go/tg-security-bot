@@ -78,8 +78,25 @@ async function sendChallenge(api, chatId, caption, kb, media, topicId) {
 }
 
 async function sendWelcome(api, chatId, userId, firstName, cfg, sourceTopicId) {
-  const mention = `<a href="tg://user?id=${userId}">${escapeHtml(firstName)}</a>`;
-  const text = `✅ ${mention} verified.\n\n${escapeHtml(cfg.welcomeText || '')}`;
+  const safeName = escapeHtml(firstName || 'friend');
+  const mention = `<a href="tg://user?id=${userId}">${safeName}</a>`;
+
+  let groupTitle = '';
+  let memberCount = '';
+  try {
+    const chatInfo = await api.getChat(chatId);
+    groupTitle = chatInfo.title || '';
+  } catch {}
+  try { memberCount = String(await api.getChatMemberCount(chatId)); } catch {}
+
+  const raw = (cfg.welcomeText || '')
+    .replaceAll('{name}', safeName)
+    .replaceAll('{mention}', mention)
+    .replaceAll('{count}', memberCount || '—')
+    .replaceAll('{group}', escapeHtml(groupTitle))
+    .replaceAll('{id}', String(userId));
+
+  const text = `${mention}\n\n${raw}`;
 
   let targetChat = chatId;
   let topicId = sourceTopicId;
@@ -124,11 +141,13 @@ async function challengeInGroup(ctx, chat, user) {
   const botUsername = (ctx.me?.username) || (await ctx.api.getMe()).username;
   const token = crypto.randomBytes(18).toString('base64url');
   const deepLink = `https://t.me/${botUsername}?start=cap_${token}`;
-  const kb = new InlineKeyboard().url(`🔐 Verify (${cfg.timeoutSec}s)`, deepLink);
+  const kb = new InlineKeyboard().url(`🔐 Tap here to verify`, deepLink);
 
   const promptMsg = await ctx.api.sendMessage(chat.id,
-    `👋 <a href="tg://user?id=${user.id}">${name}</a>, tap the button below to verify in DM.\n` +
-    `You cannot chat until you verify.`,
+    `👋 <b>Hey <a href="tg://user?id=${user.id}">${name}</a>!</b>\n\n` +
+    `Before you can chat, I need to make sure you're a real human. ` +
+    `Tap the button below — it opens a DM with me where you'll solve a quick check.\n\n` +
+    `⏱ You have <b>${cfg.timeoutSec} seconds</b>. No verification = auto-removed.`,
     { parse_mode: 'HTML', message_thread_id: joinTopicId, reply_markup: kb });
 
   const timer = setTimeout(() => fail(ctx, chat.id, user.id, 'timeout'), cfg.timeoutSec * 1000);
@@ -167,9 +186,14 @@ async function startDmChallenge(ctx, token) {
   }
   const cfg = getChat(chatIdStr).captcha;
   const c = buildChallenge(cfg.type);
+  let groupTitle = '';
+  try { groupTitle = (await ctx.api.getChat(chatIdStr)).title || ''; } catch {}
   const caption =
-    `Verify yourself to unlock chat.\n\n` +
-    (c.question ? `<b>${c.question}</b>` : 'Tap the correct button below.');
+    `🔐 <b>Verification for ${groupTitle ? escapeHtml(groupTitle) : 'the group'}</b>\n\n` +
+    (c.question
+      ? `${c.question}\n\nPick the correct answer below ⬇️`
+      : `Tap the correct button to prove you're human ⬇️`) +
+    `\n\n<i>You have ${cfg.timeoutSec}s. 3 wrong answers = removed from the group.</i>`;
   const msg = await sendChallenge(ctx.api, ctx.from.id, caption, c.kb, cfg.challengeMedia);
   entry.started = true;
   entry.answer = c.answer;
@@ -182,8 +206,13 @@ async function challengeInDM(ctx, chat, user, isJoinRequest) {
     const cfg = getChat(chat.id).captcha;
     const c = buildChallenge(cfg.type);
     const caption =
-      `Hi ${escapeHtml(user.first_name || '')}! Verify yourself to join <b>${escapeHtml(chat.title || 'the group')}</b>.\n\n` +
-      (c.question ? `<b>${c.question}</b>` : 'Tap the correct button below.');
+      `👋 Hey ${escapeHtml(user.first_name || 'there')}!\n\n` +
+      `You requested to join <b>${escapeHtml(chat.title || 'the group')}</b>. ` +
+      `To keep the community safe, solve this quick check and you're in:\n\n` +
+      (c.question
+        ? `<b>${c.question}</b>\n\nPick the right answer below ⬇️`
+        : `Tap the correct button below ⬇️`) +
+      `\n\n<i>${cfg.timeoutSec}s on the clock.</i>`;
     const msg = await sendChallenge(ctx.api, user.id, caption, c.kb, cfg.challengeMedia);
     const timer = setTimeout(async () => {
       if (isJoinRequest) {

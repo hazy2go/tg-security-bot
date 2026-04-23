@@ -22,7 +22,7 @@ const CHAT_DEFAULTS = () => ({
     enabled: true,
     type: 'button',
     timeoutSec: 120,
-    welcomeText: 'Welcome to the group!',
+    welcomeText: "🎉 Welcome aboard, {name}!\n\nYou're member #{count}. Glad to have you here.\n\n• Introduce yourself if you like\n• Check the pinned messages for the rules\n• Be kind, stay on topic, and have fun",
     welcomeMedia: null,       // { type: 'animation'|'photo'|'video', fileId: string }
     welcomeTarget: null,      // 'chatId' or 'chatId:topicId'; null = same chat/topic as join
     challengeMedia: null,     // { type, fileId } — banner shown with the CAPTCHA prompt
