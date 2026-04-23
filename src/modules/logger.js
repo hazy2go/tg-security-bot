@@ -9,12 +9,15 @@ function resolveTargets(chatId, category) {
   return list;
 }
 
-async function log(bot, chatId, category, text, extra = {}) {
+async function log(apiOrBot, chatId, category, text, extra = {}) {
+  // Accept either a grammy Api (ctx.api) or a Bot instance
+  const api = apiOrBot?.api?.sendMessage ? apiOrBot.api : apiOrBot;
   const targets = resolveTargets(chatId, category);
+  if (!targets.length) return;
   for (const target of targets) {
     const [tid, topicId] = String(target).split(':');
     try {
-      await bot.api.sendMessage(tid, text, {
+      await api.sendMessage(tid, text, {
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
         message_thread_id: topicId ? Number(topicId) : undefined,

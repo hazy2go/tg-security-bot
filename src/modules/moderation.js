@@ -11,11 +11,38 @@ function parseDuration(s) {
   return n * ({ s: 1, m: 60, h: 3600, d: 86400 }[unit]);
 }
 
-function getTargetUser(ctx) {
+async function getTargetUser(ctx) {
+  // 1. Reply-to
   const reply = ctx.message?.reply_to_message;
   if (reply?.from) return { id: reply.from.id, name: reply.from.first_name || '' };
+
+  // 2. text_mention entity (user picked from autocomplete / no @username required)
+  const entities = ctx.message?.entities || [];
+  for (const e of entities) {
+    if (e.type === 'text_mention' && e.user) {
+      return { id: e.user.id, name: e.user.first_name || '' };
+    }
+  }
+
+  // 3. @username mention — try to resolve via getChatMember (works if cached / present)
+  for (const e of entities) {
+    if (e.type === 'mention') {
+      const uname = ctx.message.text.slice(e.offset + 1, e.offset + e.length);
+      try {
+        // grammy has no direct username->id lookup; rely on recent message sender cache via getChat (for channels)
+        // We use sendChatAction as a harmless probe — instead, try resolving by iterating administrators/known users
+        const admins = await ctx.api.getChatAdministrators(ctx.chat.id);
+        const hit = admins.find(a => (a.user.username || '').toLowerCase() === uname.toLowerCase());
+        if (hit) return { id: hit.user.id, name: hit.user.first_name || '' };
+      } catch {}
+      // Fallback: not resolvable without prior interaction
+      return { id: null, name: uname, unresolvedUsername: uname };
+    }
+  }
+
+  // 4. Raw numeric ID
   const parts = (ctx.message?.text || '').split(/\s+/).slice(1);
-  if (parts[0] && /^\d+$/.test(parts[0])) return { id: Number(parts[0]), name: '' };
+  if (parts[0] && /^-?\d+$/.test(parts[0])) return { id: Number(parts[0]), name: '' };
   return null;
 }
 
@@ -34,8 +61,9 @@ async function ensureAuth(ctx) {
 
 async function cmdBan(ctx) {
   if (!(await ensureAuth(ctx))) return;
-  const target = getTargetUser(ctx);
-  if (!target) return ctx.reply('Reply to a user or pass their ID.');
+  const target = await getTargetUser(ctx);
+  if (!target) return ctx.reply('Reply to a user, tag them (pick from autocomplete), or pass their numeric ID.');
+  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — either reply to their message, pick them from the tag autocomplete, or use their numeric ID.`);
   const parts = ctx.message.text.split(/\s+/);
   const durSec = parseDuration(parts.find(p => /^\d+[smhd]?$/i.test(p) && Number(p) !== target.id));
   try {
@@ -47,7 +75,7 @@ async function cmdBan(ctx) {
 
 async function cmdUnban(ctx) {
   if (!(await ensureAuth(ctx))) return;
-  const target = getTargetUser(ctx);
+  const target = await getTargetUser(ctx);
   if (!target) return ctx.reply('Pass user ID.');
   try {
     await ctx.api.unbanChatMember(ctx.chat.id, target.id);
@@ -58,8 +86,9 @@ async function cmdUnban(ctx) {
 
 async function cmdKick(ctx) {
   if (!(await ensureAuth(ctx))) return;
-  const target = getTargetUser(ctx);
-  if (!target) return ctx.reply('Reply to a user.');
+  const target = await getTargetUser(ctx);
+  if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
+  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
   try {
     await ctx.api.banChatMember(ctx.chat.id, target.id);
     await ctx.api.unbanChatMember(ctx.chat.id, target.id);
@@ -70,8 +99,9 @@ async function cmdKick(ctx) {
 
 async function cmdMute(ctx) {
   if (!(await ensureAuth(ctx))) return;
-  const target = getTargetUser(ctx);
-  if (!target) return ctx.reply('Reply to a user.');
+  const target = await getTargetUser(ctx);
+  if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
+  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
   const parts = ctx.message.text.split(/\s+/);
   const durSec = parseDuration(parts.find(p => /^\d+[smhd]?$/i.test(p) && Number(p) !== target.id)) || 3600;
   try {
@@ -86,8 +116,9 @@ async function cmdMute(ctx) {
 
 async function cmdUnmute(ctx) {
   if (!(await ensureAuth(ctx))) return;
-  const target = getTargetUser(ctx);
-  if (!target) return ctx.reply('Reply to a user.');
+  const target = await getTargetUser(ctx);
+  if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
+  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
   try {
     await ctx.api.restrictChatMember(ctx.chat.id, target.id, {
       permissions: {
@@ -103,8 +134,9 @@ async function cmdUnmute(ctx) {
 
 async function cmdWarn(ctx) {
   if (!(await ensureAuth(ctx))) return;
-  const target = getTargetUser(ctx);
-  if (!target) return ctx.reply('Reply to a user.');
+  const target = await getTargetUser(ctx);
+  if (!target) return ctx.reply('Reply to a user, tag them, or pass their ID.');
+  if (!target.id) return ctx.reply(`Can't resolve @${target.unresolvedUsername} — reply to their message or pick them from the tag autocomplete.`);
   const chat = getChat(ctx.chat.id);
   const users = chat.warns.users;
   users[target.id] = (users[target.id] || 0) + 1;
@@ -134,7 +166,7 @@ async function cmdWarn(ctx) {
 
 async function cmdUnwarn(ctx) {
   if (!(await ensureAuth(ctx))) return;
-  const target = getTargetUser(ctx);
+  const target = await getTargetUser(ctx);
   if (!target) return;
   const chat = getChat(ctx.chat.id);
   chat.warns.users[target.id] = Math.max(0, (chat.warns.users[target.id] || 0) - 1);
