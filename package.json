@@ -1,0 +1,18 @@
+{
+  "name": "tg-security-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Professional Telegram security bot with CAPTCHA, moderation, link filtering, and social feeds",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "grammy": "^1.30.0",
+    "rss-parser": "^3.13.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
