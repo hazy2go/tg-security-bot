@@ -1,5 +1,5 @@
 const { Bot } = require('grammy');
-const { load, save, getChat } = require('./store');
+const { load, save, getChat, rememberUser } = require('./store');
 const { OWNER_ID, isOwner, isBotAdmin } = require('./roles');
 const { linkMiddleware } = require('./middleware/links');
 const { floodMiddleware, recordJoin, isRaidActive } = require('./middleware/antispam');
@@ -39,6 +39,7 @@ async function startBot() {
     const upd = ctx.update.chat_member;
     const wasIn = ['member', 'administrator', 'creator', 'restricted'].includes(upd.old_chat_member.status);
     const isIn = ['member', 'restricted'].includes(upd.new_chat_member.status);
+    if (upd.new_chat_member.user?.username) rememberUser(ctx.chat.id, upd.new_chat_member.user);
     if (!wasIn && isIn && !upd.new_chat_member.user.is_bot) {
       const { raid, until } = recordJoin(ctx.chat.id);
       if (raid) {
@@ -194,6 +195,12 @@ Durations: <code>30s</code>, <code>10m</code>, <code>2h</code>, <code>1d</code>`
     if (ctx.chat?.type === 'private') return next();
     const s = load();
     if (!s.approvedChats.map(Number).includes(Number(ctx.chat.id))) return; // silent in non-approved chats (shouldn't happen, we leave on join)
+    // Cache the sender's username for later @mention resolution
+    if (ctx.from?.username) rememberUser(ctx.chat.id, ctx.from);
+    // Cache users mentioned via text_mention (has full user object)
+    for (const e of (ctx.message?.entities || [])) {
+      if (e.type === 'text_mention' && e.user?.username) rememberUser(ctx.chat.id, e.user);
+    }
     return next();
   });
   bot.on('message', linkMiddleware);

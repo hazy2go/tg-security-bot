@@ -16,6 +16,28 @@ const DEFAULTS = {
   },
 };
 
+const USERNAME_CACHE_LIMIT = 5000;
+
+function rememberUser(chatId, user) {
+  if (!user?.username) return;
+  const s = load();
+  s.userCache = s.userCache || {};
+  s.userCache[chatId] = s.userCache[chatId] || {};
+  s.userCache[chatId][user.username.toLowerCase()] = { id: user.id, first_name: user.first_name || '' };
+  // Cap size
+  const entries = Object.entries(s.userCache[chatId]);
+  if (entries.length > USERNAME_CACHE_LIMIT) {
+    s.userCache[chatId] = Object.fromEntries(entries.slice(-USERNAME_CACHE_LIMIT));
+  }
+  save();
+}
+
+function lookupUser(chatId, username) {
+  const s = load();
+  const hit = s.userCache?.[chatId]?.[username.toLowerCase()];
+  return hit || null;
+}
+
 const CHAT_DEFAULTS = () => ({
   logTargets: { default: null, joins: null, bans: null, captcha: null, links: null, feeds: null },
   captcha: {
@@ -90,4 +112,4 @@ function updateChat(chatId, patch) {
   return c;
 }
 
-module.exports = { load, save, getChat, updateChat, CHAT_DEFAULTS };
+module.exports = { load, save, getChat, updateChat, CHAT_DEFAULTS, rememberUser, lookupUser };

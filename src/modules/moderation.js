@@ -1,4 +1,4 @@
-const { getChat, save, load } = require('../store');
+const { getChat, save, load, lookupUser } = require('../store');
 const { log } = require('./logger');
 const { isBotAdmin } = require('../roles');
 
@@ -24,18 +24,17 @@ async function getTargetUser(ctx) {
     }
   }
 
-  // 3. @username mention — try to resolve via getChatMember (works if cached / present)
+  // 3. @username mention — resolve via our seen-users cache, then admin list as fallback
   for (const e of entities) {
     if (e.type === 'mention') {
       const uname = ctx.message.text.slice(e.offset + 1, e.offset + e.length);
+      const cached = lookupUser(ctx.chat.id, uname);
+      if (cached) return { id: cached.id, name: cached.first_name || '' };
       try {
-        // grammy has no direct username->id lookup; rely on recent message sender cache via getChat (for channels)
-        // We use sendChatAction as a harmless probe — instead, try resolving by iterating administrators/known users
         const admins = await ctx.api.getChatAdministrators(ctx.chat.id);
         const hit = admins.find(a => (a.user.username || '').toLowerCase() === uname.toLowerCase());
         if (hit) return { id: hit.user.id, name: hit.user.first_name || '' };
       } catch {}
-      // Fallback: not resolvable without prior interaction
       return { id: null, name: uname, unresolvedUsername: uname };
     }
   }
