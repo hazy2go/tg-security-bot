@@ -42,9 +42,14 @@ async function getTargetUser(ctx) {
       const cached = lookupUser(ctx.chat.id, uname);
       dbg('cache lookup result:', cached);
       if (cached) return { id: cached.id, name: cached.first_name || '' };
+      // Fallback: Bot API lets us getChat('@username') for users with public usernames
+      try {
+        const u = await ctx.api.getChat('@' + uname);
+        dbg('getChat(@username) result:', u);
+        if (u?.id) return { id: u.id, name: u.first_name || '' };
+      } catch (e) { dbg('getChat(@username) failed:', e.description); }
       try {
         const admins = await ctx.api.getChatAdministrators(ctx.chat.id);
-        dbg('admin usernames:', admins.map(a => a.user.username));
         const hit = admins.find(a => (a.user.username || '').toLowerCase() === uname.toLowerCase());
         if (hit) {
           dbg('→ matched via admin list');
