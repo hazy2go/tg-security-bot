@@ -274,12 +274,10 @@ async function onCallback(ctx) {
       } catch {}
     } else {
       try {
-        // Use the chat's own default permissions so members get exactly what other members get.
-        let perms = null;
-        try {
-          const chatInfo = await ctx.api.getChat(origChat);
-          perms = chatInfo.permissions;
-        } catch {}
+        // Always pass an explicit, complete permission set. Reading chat defaults via
+        // getChat() can return an object with some granular fields missing/undefined,
+        // and with use_independent_chat_permissions=true those count as false — which
+        // would silently re-mute the user we just verified.
         const fullPerms = {
           can_send_messages: true, can_send_audios: true, can_send_documents: true,
           can_send_photos: true, can_send_videos: true, can_send_video_notes: true,
@@ -288,7 +286,7 @@ async function onCallback(ctx) {
           can_change_info: false, can_pin_messages: false, can_manage_topics: false,
         };
         await ctx.api.restrictChatMember(origChat, userId, {
-          permissions: perms || fullPerms,
+          permissions: fullPerms,
           use_independent_chat_permissions: true,
           until_date: 0,
         });
