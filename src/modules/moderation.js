@@ -1,4 +1,4 @@
-const { getChat, save, load, lookupUser } = require('../store');
+const { getChat, save, load, lookupUser, listCachedUsers } = require('../store');
 const { log } = require('./logger');
 const { isBotAdmin } = require('../roles');
 
@@ -240,4 +240,39 @@ async function cmdReport(ctx) {
   await ctx.reply('✅ Reported to admins.');
 }
 
-module.exports = { cmdBan, cmdUnban, cmdKick, cmdMute, cmdUnmute, cmdWarn, cmdUnwarn, cmdPurge, cmdPin, cmdReport };
+async function cmdTagAll(ctx) {
+  if (!(await ensureAuth(ctx))) return;
+  if (ctx.chat?.type === 'private') return ctx.reply('Use /tagall in a group.');
+
+  const text = (ctx.message?.text || '').replace(/^\/tagall(?:@\w+)?\s*/i, '').trim().slice(0, 1000);
+  const users = listCachedUsers(ctx.chat.id).filter(u => Number(u.id) !== Number(ctx.from.id));
+  if (!users.length) {
+    return ctx.reply('No cached members yet. I can only tag users I have seen join or message in this group.');
+  }
+
+  const messages = [];
+  let current = text ? `${escapeHtml(text)}\n\n` : '';
+  for (const user of users) {
+    const mention = `<a href="tg://user?id=${user.id}">${escapeHtml(user.first_name || user.username || 'member')}</a>`;
+    if (current && current.length + mention.length + 1 > 3500) {
+      messages.push(current.trim());
+      current = '';
+    }
+    current += `${mention} `;
+  }
+  if (current.trim()) messages.push(current.trim());
+
+  for (const message of messages) {
+    await ctx.api.sendMessage(ctx.chat.id, message, {
+      parse_mode: 'HTML',
+      message_thread_id: ctx.message?.message_thread_id,
+      link_preview_options: { is_disabled: true },
+    });
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+module.exports = { cmdBan, cmdUnban, cmdKick, cmdMute, cmdUnmute, cmdWarn, cmdUnwarn, cmdPurge, cmdPin, cmdReport, cmdTagAll };

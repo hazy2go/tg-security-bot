@@ -16,18 +16,46 @@ const DEFAULTS = {
   },
 };
 
-const USERNAME_CACHE_LIMIT = 5000;
+const USER_CACHE_LIMIT = 5000;
 
 function rememberUser(chatId, user) {
-  if (!user?.username) return;
+  if (!user?.id || user.is_bot) return;
   const s = load();
-  s.userCache = s.userCache || {};
-  s.userCache[chatId] = s.userCache[chatId] || {};
-  s.userCache[chatId][user.username.toLowerCase()] = { id: user.id, first_name: user.first_name || '' };
-  // Cap size
-  const entries = Object.entries(s.userCache[chatId]);
-  if (entries.length > USERNAME_CACHE_LIMIT) {
-    s.userCache[chatId] = Object.fromEntries(entries.slice(-USERNAME_CACHE_LIMIT));
+  const chatKey = String(chatId);
+  const entry = {
+    id: Number(user.id),
+    first_name: user.first_name || '',
+    username: user.username || '',
+    last_seen: Date.now(),
+  };
+
+  s.memberCache = s.memberCache || {};
+  s.memberCache[chatKey] = s.memberCache[chatKey] || {};
+  const prev = s.memberCache[chatKey][entry.id];
+  const recentlySeen = prev && Date.now() - (prev.last_seen || 0) < 60_000;
+  const usernameCached = !entry.username || s.userCache?.[chatKey]?.[entry.username.toLowerCase()];
+  const unchanged = prev &&
+    prev.first_name === entry.first_name &&
+    prev.username === entry.username &&
+    usernameCached;
+  if (recentlySeen && unchanged) return;
+
+  s.memberCache[chatKey][entry.id] = entry;
+
+  const members = Object.entries(s.memberCache[chatKey]);
+  if (members.length > USER_CACHE_LIMIT) {
+    members.sort((a, b) => (a[1].last_seen || 0) - (b[1].last_seen || 0));
+    s.memberCache[chatKey] = Object.fromEntries(members.slice(-USER_CACHE_LIMIT));
+  }
+
+  if (user.username) {
+    s.userCache = s.userCache || {};
+    s.userCache[chatKey] = s.userCache[chatKey] || {};
+    s.userCache[chatKey][user.username.toLowerCase()] = entry;
+    const usernames = Object.entries(s.userCache[chatKey]);
+    if (usernames.length > USER_CACHE_LIMIT) {
+      s.userCache[chatKey] = Object.fromEntries(usernames.slice(-USER_CACHE_LIMIT));
+    }
   }
   save();
 }
@@ -36,6 +64,19 @@ function lookupUser(chatId, username) {
   const s = load();
   const hit = s.userCache?.[chatId]?.[username.toLowerCase()];
   return hit || null;
+}
+
+function listCachedUsers(chatId) {
+  const s = load();
+  const chatKey = String(chatId);
+  const byId = new Map();
+  for (const user of Object.values(s.memberCache?.[chatKey] || {})) {
+    if (user?.id) byId.set(Number(user.id), user);
+  }
+  for (const user of Object.values(s.userCache?.[chatKey] || {})) {
+    if (user?.id && !byId.has(Number(user.id))) byId.set(Number(user.id), user);
+  }
+  return [...byId.values()].sort((a, b) => (a.last_seen || 0) - (b.last_seen || 0));
 }
 
 const CHAT_DEFAULTS = () => ({
@@ -112,4 +153,4 @@ function updateChat(chatId, patch) {
   return c;
 }
 
-module.exports = { load, save, getChat, updateChat, CHAT_DEFAULTS, rememberUser, lookupUser };
+module.exports = { load, save, getChat, updateChat, CHAT_DEFAULTS, rememberUser, lookupUser, listCachedUsers };
