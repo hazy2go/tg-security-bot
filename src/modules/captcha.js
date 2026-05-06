@@ -1,4 +1,4 @@
-const { InlineKeyboard } = require('grammy');
+const { InlineKeyboard, API_CONSTANTS } = require('grammy');
 const crypto = require('crypto');
 const { getChat } = require('../store');
 const { log } = require('./logger');
@@ -6,6 +6,7 @@ const { log } = require('./logger');
 // pending[chatId:userId] = { timer, messageId, answer, attempts }
 const pending = new Map();
 const key = (c, u) => `${c}:${u}`;
+const FULL_CHAT_PERMISSIONS = API_CONSTANTS.ALL_CHAT_PERMISSIONS;
 
 function makeButtonChallenge() {
   const correct = '✅ I am human';
@@ -232,6 +233,26 @@ async function challengeInDM(ctx, chat, user, isJoinRequest) {
   }
 }
 
+async function restoreMemberPermissions(api, chatId, userId) {
+  try {
+    // Telegram's Bot API documents this as the way to lift restrictions:
+    // pass true for every known chat permission.
+    await api.restrictChatMember(chatId, userId, {
+      permissions: FULL_CHAT_PERMISSIONS,
+      use_independent_chat_permissions: true,
+      until_date: 0,
+    });
+    return true;
+  } catch (e) {
+    const reason = e.description || e.message;
+    console.error('[captcha] unrestrict failed:', reason);
+    await log(api, chatId, 'captcha',
+      `⚠️ Could not restore permissions for <code>${userId}</code>: ${escapeHtml(reason)}\n` +
+      `Make sure the bot is an admin with <b>Restrict Members</b> permission.`);
+    return false;
+  }
+}
+
 function buildChallenge(type) {
   if (type === 'math') return makeMathChallenge();
   if (type === 'emoji') return makeEmojiChallenge();
@@ -247,8 +268,13 @@ async function onCallback(ctx) {
   // Always scope by the caller's userId — this alone blocks any cross-user tap.
   let entry, k;
   if (ctx.chat?.type === 'private') {
+    const callbackMessageId = ctx.callbackQuery.message?.message_id;
     for (const [kk, v] of pending) {
-      if (kk.endsWith(':' + userId)) { entry = v; k = kk; break; }
+      if (!kk.endsWith(':' + userId)) continue;
+      if (callbackMessageId && (v.dmMessageId === callbackMessageId || v.messageId === callbackMessageId)) {
+        entry = v; k = kk; break;
+      }
+      if (!entry) { entry = v; k = kk; }
     }
   } else {
     k = key(chatId, userId);
@@ -267,35 +293,21 @@ async function onCallback(ctx) {
     const [origChat] = k.split(':');
 
     if (entry.joinRequestChatId) {
-      try { await ctx.api.approveChatJoinRequest(entry.joinRequestChatId, userId); } catch {}
+      try {
+        await ctx.api.approveChatJoinRequest(entry.joinRequestChatId, userId);
+        await restoreMemberPermissions(ctx.api, entry.joinRequestChatId, userId);
+      } catch (e) {
+        const reason = e.description || e.message;
+        console.error('[captcha] approve join request failed:', reason);
+        await log(ctx.api, entry.joinRequestChatId, 'captcha',
+          `⚠️ Could not approve verified join request for <code>${userId}</code>: ${escapeHtml(reason)}`);
+      }
       await ctx.answerCallbackQuery({ text: '✅ Verified! You can join now.' });
       try {
         if (entry.messageId) await ctx.api.editMessageText(userId, entry.messageId, '✅ Verified. Welcome!');
       } catch {}
     } else {
-      try {
-        // Always pass an explicit, complete permission set. Reading chat defaults via
-        // getChat() can return an object with some granular fields missing/undefined,
-        // and with use_independent_chat_permissions=true those count as false — which
-        // would silently re-mute the user we just verified.
-        const fullPerms = {
-          can_send_messages: true, can_send_audios: true, can_send_documents: true,
-          can_send_photos: true, can_send_videos: true, can_send_video_notes: true,
-          can_send_voice_notes: true, can_send_polls: true, can_send_other_messages: true,
-          can_add_web_page_previews: true, can_invite_users: true,
-          can_change_info: false, can_pin_messages: false, can_manage_topics: false,
-        };
-        await ctx.api.restrictChatMember(origChat, userId, {
-          permissions: fullPerms,
-          use_independent_chat_permissions: true,
-          until_date: 0,
-        });
-      } catch (e) {
-        console.error('[captcha] unrestrict failed:', e.description || e.message);
-        await log(ctx.api, origChat, 'captcha',
-          `⚠️ Could not restore permissions for <code>${userId}</code>: ${e.description || e.message}\n` +
-          `Make sure the bot is an admin with <b>Restrict Members</b> permission.`);
-      }
+      await restoreMemberPermissions(ctx.api, origChat, userId);
       await ctx.answerCallbackQuery({ text: '✅ Verified!' });
       const cfg = getChat(origChat).captcha;
       // Clean up: DM challenge + in-group prompt
