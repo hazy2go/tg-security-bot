@@ -128,12 +128,10 @@ async function challengeInGroup(ctx, chat, user) {
   const cfg = getChat(chat.id).captcha;
   try {
     await ctx.api.restrictChatMember(chat.id, user.id, {
-      permissions: {
-        can_send_messages: false, can_send_audios: false, can_send_documents: false,
-        can_send_photos: false, can_send_videos: false, can_send_video_notes: false,
-        can_send_voice_notes: false, can_send_polls: false, can_send_other_messages: false,
-        can_add_web_page_previews: false,
-      },
+      can_send_messages: false, can_send_audios: false, can_send_documents: false,
+      can_send_photos: false, can_send_videos: false, can_send_video_notes: false,
+      can_send_voice_notes: false, can_send_polls: false, can_send_other_messages: false,
+      can_add_web_page_previews: false,
     });
     await log(ctx.api, chat.id, 'captcha',
       `🔇 Captcha muted <code>${user.id}</code> in <code>${chat.id}</code>`);
@@ -252,8 +250,7 @@ async function restoreMemberPermissions(api, chatId, userId) {
   try {
     // Telegram's Bot API documents this as the way to lift restrictions:
     // pass true for every known chat permission.
-    await api.restrictChatMember(chatId, userId, {
-      permissions: FULL_CHAT_PERMISSIONS,
+    await api.restrictChatMember(chatId, userId, FULL_CHAT_PERMISSIONS, {
       use_independent_chat_permissions: true,
       until_date: 0,
     });

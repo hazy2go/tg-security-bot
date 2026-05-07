@@ -30,7 +30,8 @@ async function floodMiddleware(ctx, next) {
     try {
       if (cfg.floodAction === 'mute') {
         await ctx.api.restrictChatMember(ctx.chat.id, ctx.from.id, {
-          permissions: { can_send_messages: false },
+          can_send_messages: false,
+        }, {
           until_date: Math.floor(Date.now() / 1000) + cfg.muteMinutes * 60,
         });
       } else if (cfg.floodAction === 'kick') {

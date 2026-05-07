@@ -125,7 +125,8 @@ async function cmdMute(ctx) {
   const durSec = parseDuration(parts.find(p => /^\d+[smhd]?$/i.test(p) && Number(p) !== target.id)) || 3600;
   try {
     await ctx.api.restrictChatMember(ctx.chat.id, target.id, {
-      permissions: { can_send_messages: false },
+      can_send_messages: false,
+    }, {
       until_date: Math.floor(Date.now() / 1000) + durSec,
     });
     await ctx.reply(`🔇 Muted ${target.id} for ${durSec}s.`);
@@ -147,12 +148,10 @@ async function cmdUnmute(ctx) {
     { parse_mode: 'HTML' });
   try {
     await ctx.api.restrictChatMember(ctx.chat.id, target.id, {
-      permissions: {
-        can_send_messages: true, can_send_audios: true, can_send_documents: true,
-        can_send_photos: true, can_send_videos: true, can_send_video_notes: true,
-        can_send_voice_notes: true, can_send_polls: true, can_send_other_messages: true,
-        can_add_web_page_previews: true,
-      },
+      can_send_messages: true, can_send_audios: true, can_send_documents: true,
+      can_send_photos: true, can_send_videos: true, can_send_video_notes: true,
+      can_send_voice_notes: true, can_send_polls: true, can_send_other_messages: true,
+      can_add_web_page_previews: true,
     });
     await ctx.reply(`🔊 Unmuted ${target.id}.`);
   } catch (e) { await ctx.reply(`Failed: ${e.description}`); }
@@ -188,7 +187,8 @@ async function cmdWarn(ctx) {
     } else {
       try {
         await ctx.api.restrictChatMember(ctx.chat.id, target.id, {
-          permissions: { can_send_messages: false },
+          can_send_messages: false,
+        }, {
           until_date: Math.floor(Date.now() / 1000) + chat.antispam.muteMinutes * 60,
         });
       } catch {}

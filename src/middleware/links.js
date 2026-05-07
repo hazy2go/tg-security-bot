@@ -84,7 +84,8 @@ async function linkMiddleware(ctx, next) {
       save();
       try {
         await ctx.api.restrictChatMember(ctx.chat.id, ctx.from.id, {
-          permissions: { can_send_messages: false },
+          can_send_messages: false,
+        }, {
           until_date: Math.floor(Date.now() / 1000) + chat.antispam.muteMinutes * 60,
         });
       } catch {}
@@ -92,7 +93,8 @@ async function linkMiddleware(ctx, next) {
   } else if (cfg.action === 'mute') {
     try {
       await ctx.api.restrictChatMember(ctx.chat.id, ctx.from.id, {
-        permissions: { can_send_messages: false },
+        can_send_messages: false,
+      }, {
         until_date: Math.floor(Date.now() / 1000) + chat.antispam.muteMinutes * 60,
       });
     } catch {}
