@@ -2,7 +2,7 @@ const { Bot } = require('grammy');
 const { load, save, getChat, rememberUser } = require('./store');
 const { OWNER_ID, isOwner, isBotAdmin } = require('./roles');
 const { linkMiddleware } = require('./middleware/links');
-const { floodMiddleware, recordJoin, isRaidActive } = require('./middleware/antispam');
+const { floodMiddleware, recordJoin, clearRaid } = require('./middleware/antispam');
 const { onChatMember, onCallback: onCaptchaCallback, startDmChallenge } = require('./modules/captcha');
 const { cmdBan, cmdUnban, cmdKick, cmdMute, cmdUnmute, cmdWarn, cmdUnwarn, cmdPurge, cmdPin, cmdReport, cmdTagAll } = require('./modules/moderation');
 const { cmdAdmin, onPanelCallback, handleTextInput, handleMediaInput } = require('./modules/panel');
@@ -48,6 +48,7 @@ async function startBot() {
           await ctx.api.sendMessage(ctx.chat.id, `🚨 <b>Anti-raid triggered.</b> Chat locked for ${getChat(ctx.chat.id).antiraid.autoLockMinutes}m.`, { parse_mode: 'HTML' });
         } catch {}
         await log(ctx.api, ctx.chat.id, 'bans', `🚨 Anti-raid triggered — chat locked until ${new Date(until).toISOString()}`);
+        scheduleRaidUnlock(ctx.api, ctx.chat.id, until);
       }
       await log(ctx.api, ctx.chat.id, 'joins', `➕ Join: <code>${upd.new_chat_member.user.id}</code> ${escapeHtml(upd.new_chat_member.user.first_name || '')} ${upd.new_chat_member.user.username ? '@'+upd.new_chat_member.user.username : ''}`);
     }
@@ -147,10 +148,7 @@ async function startBot() {
     if (!isBotAdmin(ctx.from.id)) return;
     try {
       await ctx.api.setChatPermissions(ctx.chat.id, {
-        can_send_messages: true, can_send_audios: true, can_send_documents: true,
-        can_send_photos: true, can_send_videos: true, can_send_video_notes: true,
-        can_send_voice_notes: true, can_send_polls: true, can_send_other_messages: true,
-        can_add_web_page_previews: true, can_invite_users: true, can_change_info: false, can_pin_messages: false,
+        ...defaultUnlockedPermissions(),
       });
       await ctx.reply('🔓 Chat unlocked.');
     } catch (e) { await ctx.reply(e.description); }
@@ -245,6 +243,39 @@ Durations: <code>30s</code>, <code>10m</code>, <code>2h</code>, <code>1d</code>`
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+function defaultUnlockedPermissions() {
+  return {
+    can_send_messages: true,
+    can_send_audios: true,
+    can_send_documents: true,
+    can_send_photos: true,
+    can_send_videos: true,
+    can_send_video_notes: true,
+    can_send_voice_notes: true,
+    can_send_polls: true,
+    can_send_other_messages: true,
+    can_add_web_page_previews: true,
+    can_invite_users: true,
+    can_change_info: false,
+    can_pin_messages: false,
+    can_manage_topics: false,
+  };
+}
+
+function scheduleRaidUnlock(api, chatId, until) {
+  const delay = Math.max(0, until - Date.now());
+  setTimeout(async () => {
+    try {
+      await api.setChatPermissions(chatId, defaultUnlockedPermissions());
+      clearRaid(chatId);
+      await log(api, chatId, 'bans', `🔓 Anti-raid auto-unlocked chat <code>${chatId}</code>.`);
+    } catch (e) {
+      await log(api, chatId, 'bans',
+        `⚠️ Anti-raid auto-unlock failed for <code>${chatId}</code>: ${escapeHtml(e.description || e.message)}`);
+    }
+  }, delay);
 }
 
 async function registerCommands(bot) {

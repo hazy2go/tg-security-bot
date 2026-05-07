@@ -12,6 +12,7 @@ function resolveTargets(chatId, category) {
 async function log(apiOrBot, chatId, category, text, extra = {}) {
   // Accept either a grammy Api (ctx.api) or a Bot instance
   const api = apiOrBot?.api?.sendMessage ? apiOrBot.api : apiOrBot;
+  console.info(`[${category}] chat=${chatId} ${stripHtml(text)}`);
   const targets = resolveTargets(chatId, category);
   if (!targets.length) return;
   for (const target of targets) {
@@ -27,6 +28,10 @@ async function log(apiOrBot, chatId, category, text, extra = {}) {
       console.error(`[logger] send to ${target} failed:`, e.description || e.message);
     }
   }
+}
+
+function stripHtml(text) {
+  return String(text).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
 module.exports = { log };

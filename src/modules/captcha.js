@@ -135,7 +135,14 @@ async function challengeInGroup(ctx, chat, user) {
         can_add_web_page_previews: false,
       },
     });
-  } catch (e) { console.error('[captcha] restrict failed:', e.description); }
+    await log(ctx.api, chat.id, 'captcha',
+      `🔇 Captcha muted <code>${user.id}</code> in <code>${chat.id}</code>`);
+  } catch (e) {
+    const reason = e.description || e.message;
+    console.error('[captcha] restrict failed:', reason);
+    await log(ctx.api, chat.id, 'captcha',
+      `⚠️ Captcha could not mute <code>${user.id}</code> in <code>${chat.id}</code>: ${escapeHtml(reason)}`);
+  }
 
   const name = escapeHtml(user.first_name || 'user');
   const joinTopicId = ctx.update?.chat_member?.message_thread_id || ctx.message?.message_thread_id;
@@ -150,6 +157,8 @@ async function challengeInGroup(ctx, chat, user) {
     `Tap the button below — it opens a DM with me where you'll solve a quick check.\n\n` +
     `⏱ You have <b>${cfg.timeoutSec} seconds</b>. No verification = auto-removed.`,
     { parse_mode: 'HTML', message_thread_id: joinTopicId, reply_markup: kb });
+  await log(ctx.api, chat.id, 'captcha',
+    `🔐 Captcha challenge posted for <code>${user.id}</code>. topic=<code>${joinTopicId || 'none'}</code> timeout=<code>${cfg.timeoutSec}s</code>`);
 
   const timer = setTimeout(() => fail(ctx, chat.id, user.id, 'timeout'), cfg.timeoutSec * 1000);
   pending.set(key(chat.id, user.id), {
@@ -199,6 +208,8 @@ async function startDmChallenge(ctx, token) {
   entry.started = true;
   entry.answer = c.answer;
   entry.dmMessageId = msg.message_id;
+  await log(ctx.api, chatIdStr, 'captcha',
+    `📩 Captcha DM challenge started by <code>${ctx.from.id}</code>. type=<code>${cfg.type}</code>`);
   return true;
 }
 
@@ -225,11 +236,15 @@ async function challengeInDM(ctx, chat, user, isJoinRequest) {
       timer, messageId: msg.message_id, answer: c.answer, attempts: 0,
       joinRequestChatId: isJoinRequest ? chat.id : null, dm: true,
     });
-  } catch {
+    await log(ctx.api, chat.id, 'captcha',
+      `📩 Join-request captcha sent to <code>${user.id}</code>. type=<code>${cfg.type}</code> timeout=<code>${cfg.timeoutSec}s</code>`);
+  } catch (e) {
     // Can't DM them — reject join request
     if (isJoinRequest) {
       try { await ctx.api.declineChatJoinRequest(chat.id, user.id); } catch {}
     }
+    await log(ctx.api, chat.id, 'captcha',
+      `⚠️ Could not DM captcha to <code>${user.id}</code>; join request was declined. reason=<code>${escapeHtml(e.description || e.message)}</code>`);
   }
 }
 
@@ -242,15 +257,51 @@ async function restoreMemberPermissions(api, chatId, userId) {
       use_independent_chat_permissions: true,
       until_date: 0,
     });
+    const state = await getPermissionState(api, chatId, userId);
+    await log(api, chatId, 'captcha',
+      `🔊 Captcha restored permissions for <code>${userId}</code> in <code>${chatId}</code>.\n${state}`);
     return true;
   } catch (e) {
     const reason = e.description || e.message;
     console.error('[captcha] unrestrict failed:', reason);
+    const state = await getPermissionState(api, chatId, userId);
     await log(api, chatId, 'captcha',
       `⚠️ Could not restore permissions for <code>${userId}</code>: ${escapeHtml(reason)}\n` +
-      `Make sure the bot is an admin with <b>Restrict Members</b> permission.`);
+      `Make sure the bot is an admin with <b>Restrict Members</b> permission.\n${state}`);
     return false;
   }
+}
+
+async function getPermissionState(api, chatId, userId) {
+  const lines = [];
+  try {
+    const member = await api.getChatMember(chatId, userId);
+    const perms = member.permissions || {};
+    lines.push(`member.status=<code>${escapeHtml(member.status)}</code>`);
+    lines.push(`member.can_send_messages=<code>${String(perms.can_send_messages)}</code>`);
+    lines.push(`member.until_date=<code>${member.until_date || 0}</code>`);
+  } catch (e) {
+    lines.push(`member_state_error=<code>${escapeHtml(e.description || e.message)}</code>`);
+  }
+  try {
+    const chat = await api.getChat(chatId);
+    const perms = chat.permissions || {};
+    lines.push(`chat.default_can_send_messages=<code>${String(perms.can_send_messages)}</code>`);
+    if (perms.can_send_messages === false) {
+      lines.push(`<b>Chat default permissions are locked, so members may still be unable to write.</b>`);
+    }
+  } catch (e) {
+    lines.push(`chat_state_error=<code>${escapeHtml(e.description || e.message)}</code>`);
+  }
+  try {
+    const me = await api.getMe();
+    const botMember = await api.getChatMember(chatId, me.id);
+    lines.push(`bot.status=<code>${escapeHtml(botMember.status)}</code>`);
+    lines.push(`bot.can_restrict_members=<code>${String(botMember.can_restrict_members)}</code>`);
+  } catch (e) {
+    lines.push(`bot_state_error=<code>${escapeHtml(e.description || e.message)}</code>`);
+  }
+  return lines.join('\n');
 }
 
 function buildChallenge(type) {
